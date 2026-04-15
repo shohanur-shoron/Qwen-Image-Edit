@@ -5,6 +5,15 @@ Includes an MVT UI for admins and a REST API secured with API keys.
 
 ---
 
+<img width="1917" height="958" alt="image" src="https://github.com/user-attachments/assets/6ea210de-35f2-4075-aa7c-1f2268a82fef" />
+<img width="1918" height="957" alt="image" src="https://github.com/user-attachments/assets/2e4bc471-f7b3-415a-a516-57b8028f5073" />
+<img width="1919" height="956" alt="image" src="https://github.com/user-attachments/assets/6b85cf5b-d3a7-4462-b0be-bf5c074bace9" />
+<img width="1915" height="958" alt="image" src="https://github.com/user-attachments/assets/c71c1673-39ef-4c0b-b5c3-ffa84a82846d" />
+<img width="1918" height="957" alt="image" src="https://github.com/user-attachments/assets/cb5dab2d-1a10-4c43-888d-4a1da5c5e313" />
+<img width="1919" height="956" alt="image" src="https://github.com/user-attachments/assets/1d613095-ed53-4e9d-815a-dd27c3f31895" />
+
+---
+
 ## Project Structure
 
 ```
