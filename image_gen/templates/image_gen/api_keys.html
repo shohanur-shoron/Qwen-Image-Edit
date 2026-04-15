@@ -1,0 +1,202 @@
+{% extends "image_gen/base.html" %}
+{% block title %}API Keys — Qwen Studio{% endblock %}
+{% block page_title %}// API KEYS{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-5 sm:space-y-6">
+
+  <!-- Create new key -->
+  <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-6">
+    <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest mb-4 sm:mb-5">// CREATE NEW KEY</h2>
+    <form method="post" class="flex flex-col sm:flex-row gap-3">
+      {% csrf_token %}
+      <div class="flex-1 flex gap-2">
+        <input type="text" name="name" id="key-name-input" required
+               placeholder="e.g. My App, Pipeline…"
+               class="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all font-mono min-w-0" />
+        <button type="button" onclick="randomizeKeyName()"
+                class="px-3 py-2.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 hover:border-brand-700 text-gray-300 hover:text-brand-400 text-xs font-mono rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
+                title="Generate a random key name">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          RAND
+        </button>
+      </div>
+      <button type="submit"
+              class="px-5 py-2.5 bg-brand-500 hover:bg-brand-400 text-black text-xs font-mono font-bold rounded-lg transition-all glow-sm whitespace-nowrap w-full sm:w-auto">
+        + CREATE KEY
+      </button>
+    </form>
+    <p class="mt-3 text-xs text-gray-600 font-mono">⚠ The full key is only shown once at creation. Store it securely.</p>
+  </div>
+
+  <!-- Messages (flash new key) -->
+  {% if messages %}
+    {% for message in messages %}
+    {% if 'created' in message.message|default:message|stringformat:"s" %}
+    <div class="bg-brand-700/10 border border-brand-700 rounded-xl p-4 sm:p-5">
+      <div class="flex items-center gap-2 mb-3">
+        <svg class="w-4 h-4 text-brand-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+        </svg>
+        <span class="text-sm font-medium text-brand-400">Key created successfully</span>
+      </div>
+      <div class="bg-surface-900 rounded-lg px-3 sm:px-4 py-3 font-mono text-xs sm:text-sm text-brand-300 break-all select-all border border-brand-800">
+        {{ message }}
+      </div>
+    </div>
+    {% else %}
+    <div class="px-4 py-3 rounded border bg-brand-700/20 border-brand-700 text-brand-400 text-sm">{{ message }}</div>
+    {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  <!-- Keys table -->
+  <div class="bg-surface-800 border border-surface-600 rounded-xl overflow-hidden">
+    <div class="px-4 sm:px-6 py-4 border-b border-surface-600 flex items-center justify-between">
+      <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest">// YOUR KEYS ({{ api_keys.count }})</h2>
+    </div>
+
+    {% if api_keys %}
+    <div class="divide-y divide-surface-600">
+      {% for key in api_keys %}
+      <div class="px-4 sm:px-6 py-4 {% if not key.is_active %}opacity-50{% endif %}">
+
+        <!-- Top row: status + name + actions -->
+        <div class="flex items-start gap-3">
+          <div class="flex-shrink-0 mt-1">
+            <div class="w-2.5 h-2.5 rounded-full {% if key.is_active %}bg-brand-400{% else %}bg-gray-600{% endif %}"></div>
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-medium text-gray-200">{{ key.name }}</span>
+              {% if not key.is_active %}
+                <span class="tag px-2 py-0.5 bg-surface-600 text-gray-500 rounded">REVOKED</span>
+              {% endif %}
+            </div>
+
+            <!-- Key preview -->
+            <code class="inline-block font-mono text-xs text-gray-500 bg-surface-700 px-2 py-0.5 rounded cursor-pointer hover:text-gray-300 transition-colors mt-1.5"
+                  onclick="copyKey(this, '{{ key.key }}')" title="Tap to copy">
+              {{ key.key|slice:":20" }}…
+            </code>
+
+            <!-- Meta tags: wrap on small screens -->
+            <div class="flex items-center gap-2 sm:gap-4 mt-1.5 flex-wrap">
+              <span class="tag text-gray-600">{{ key.total_requests }} req</span>
+              {% if key.last_used_at %}
+                <span class="tag text-gray-600">{{ key.last_used_at|timesince }} ago</span>
+              {% else %}
+                <span class="tag text-gray-600">Never used</span>
+              {% endif %}
+              <span class="tag text-gray-600 hidden sm:inline">{{ key.created_at|date:"M d, Y" }}</span>
+            </div>
+          </div>
+
+          <!-- Actions: icon buttons on mobile, text on sm+ -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            {% if key.is_active %}
+            <form method="post" action="{% url 'revoke_api_key' key.id %}"
+                  onsubmit="return confirm('Revoke this API key? It will stop working immediately.')">
+              {% csrf_token %}
+              <button type="submit"
+                      class="px-2 sm:px-3 py-1.5 text-xs font-mono text-yellow-400 hover:text-yellow-300 border border-yellow-800/50 hover:border-yellow-600 rounded-lg transition-all">
+                <span class="hidden sm:inline">REVOKE</span>
+                <span class="sm:hidden">RVK</span>
+              </button>
+            </form>
+            {% endif %}
+            <form method="post" action="{% url 'delete_api_key' key.id %}"
+                  onsubmit="return confirm('Permanently delete this key?')">
+              {% csrf_token %}
+              <button type="submit"
+                      class="px-2 sm:px-3 py-1.5 text-xs font-mono text-red-400 hover:text-red-300 border border-red-900/50 hover:border-red-700 rounded-lg transition-all">
+                <span class="hidden sm:inline">DELETE</span>
+                <span class="sm:hidden">DEL</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="text-center py-16">
+      <svg class="w-10 h-10 mx-auto mb-3 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+      </svg>
+      <p class="text-sm text-gray-600 font-mono">No API keys yet. Create one above.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- API Usage docs -->
+  <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-6">
+    <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest mb-4 sm:mb-5">// API USAGE</h2>
+    <div class="space-y-4 text-sm">
+
+      <div>
+        <div class="tag text-gray-500 mb-2">POST /api/generate/ — Submit a generation job</div>
+        <pre class="bg-surface-900 rounded-lg p-3 sm:p-4 text-xs text-gray-300 overflow-x-auto font-mono border border-surface-600 whitespace-pre-wrap sm:whitespace-pre">curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/generate/ \
+  -H "X-API-Key: YOUR_KEY_HERE" \
+  -F "prompt=Replace the hat with a crown" \
+  -F "input_images=@/path/to/image.png" \
+  -F "num_inference_steps=40" \
+  -F "true_cfg_scale=4.0" \
+  -F "seed=42" \
+  -F "output_width=1024" \
+  -F "output_height=1024"</pre>
+      </div>
+
+      <div>
+        <div class="tag text-gray-500 mb-2">GET /api/jobs/&lt;job_id&gt;/ — Poll job status</div>
+        <pre class="bg-surface-900 rounded-lg p-3 sm:p-4 text-xs text-gray-300 overflow-x-auto font-mono border border-surface-600 whitespace-pre-wrap sm:whitespace-pre">curl {{ request.scheme }}://{{ request.get_host }}/api/jobs/JOB_UUID/ \
+  -H "X-API-Key: YOUR_KEY_HERE"</pre>
+      </div>
+
+      <div>
+        <div class="tag text-gray-500 mb-2">GET /api/status/ — Check model load status</div>
+        <pre class="bg-surface-900 rounded-lg p-3 sm:p-4 text-xs text-gray-300 overflow-x-auto font-mono border border-surface-600">curl {{ request.scheme }}://{{ request.get_host }}/api/status/ \
+  -H "X-API-Key: YOUR_KEY_HERE"</pre>
+      </div>
+
+      <div class="mt-3 p-3 sm:p-4 bg-surface-700/50 rounded-lg border border-surface-500">
+        <div class="tag text-gray-500 mb-2">RESPONSE (202 Accepted)</div>
+        <pre class="text-xs text-gray-400 font-mono overflow-x-auto">{
+  "id": "uuid",
+  "status": "pending",
+  "prompt": "...",
+  "output_image_url": null,
+  "duration_seconds": null,
+  ...
+}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copyKey(el, fullKey) {
+  navigator.clipboard.writeText(fullKey).then(() => {
+    const orig = el.textContent;
+    el.textContent = 'COPIED!';
+    el.classList.add('text-brand-400');
+    setTimeout(() => { el.textContent = orig; el.classList.remove('text-brand-400'); }, 1500);
+  });
+}
+
+function randomizeKeyName() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let name = 'key-';
+  for (let i = 0; i < 8; i++) {
+    name += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  document.getElementById('key-name-input').value = name;
+}
+</script>
+{% endblock %}

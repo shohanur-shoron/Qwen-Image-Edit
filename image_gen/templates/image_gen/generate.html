@@ -1,0 +1,299 @@
+{% extends "image_gen/base.html" %}
+{% block title %}Generate — Qwen Studio{% endblock %}
+{% block page_title %}// NEW GENERATION JOB{% endblock %}
+
+{% block extra_head %}
+<style>
+  .drop-zone { transition: all 0.2s ease; }
+  .drop-zone.drag-over { border-color: #10b981; background-color: rgba(16,185,129,0.05); }
+  .preview-img { aspect-ratio: 1; object-fit: cover; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: #2e2e2e;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: #10b981;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid #1a1a1a;
+    box-shadow: 0 0 4px rgba(16,185,129,0.4);
+    transition: transform 0.15s ease;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px;
+    background: #10b981; border-radius: 50%;
+    cursor: pointer; border: 2px solid #1a1a1a;
+    box-shadow: 0 0 4px rgba(16,185,129,0.4);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<form method="post" enctype="multipart/form-data" id="generate-form">
+  {% csrf_token %}
+
+  <!-- Stacked on mobile, 5-col grid on xl -->
+  <div class="flex flex-col xl:grid xl:grid-cols-5 gap-5 xl:gap-6 max-w-6xl mx-auto">
+
+    <!-- LEFT: Inputs -->
+    <div class="xl:col-span-3 space-y-4 sm:space-y-5">
+
+      <!-- Image Upload -->
+      <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-6">
+        <div class="flex items-center gap-2 mb-4">
+          <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest">// INPUT IMAGES</h2>
+          <span class="tag text-gray-600">(1–3 IMAGES)</span>
+        </div>
+
+        <div id="drop-zone"
+             class="drop-zone border-2 border-dashed border-surface-500 rounded-xl p-6 sm:p-8 text-center cursor-pointer hover:border-brand-700 transition-all"
+             onclick="document.getElementById('image-input').click()">
+          <input type="file" id="image-input" name="input_images" multiple accept="image/*" class="hidden" />
+          <div id="drop-placeholder">
+            <svg class="w-10 h-10 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+            <p class="text-sm text-gray-400 mb-1">
+              <span class="hidden sm:inline">Drop images here or </span>
+              <span class="text-brand-400">Tap to browse</span>
+            </p>
+            <p class="tag text-gray-600">PNG, JPG, WEBP — MAX 3 IMAGES</p>
+          </div>
+        </div>
+
+        <div id="preview-grid" class="mt-4 grid grid-cols-3 gap-2 sm:gap-3 hidden"></div>
+      </div>
+
+      <!-- Prompt -->
+      <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-6">
+        <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest mb-4">// PROMPT</h2>
+        <textarea
+          name="prompt" id="prompt" rows="4" required
+          placeholder="Describe the edit you want to make…&#10;e.g. Replace the background with a snowy mountain landscape"
+          class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 sm:px-4 py-3 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 resize-none transition-all"
+        ></textarea>
+        <div class="flex justify-end mt-1.5">
+          <span id="prompt-count" class="tag text-gray-600">0 chars</span>
+        </div>
+      </div>
+
+      <!-- Negative Prompt -->
+      <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-6">
+        <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest mb-4">
+          // NEGATIVE PROMPT <span class="text-gray-600 font-normal">(OPTIONAL)</span>
+        </h2>
+        <textarea
+          name="negative_prompt" rows="2"
+          placeholder="What to avoid in the output…"
+          class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 sm:px-4 py-3 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-brand-500 resize-none transition-all"
+        ></textarea>
+      </div>
+    </div>
+
+    <!-- RIGHT: Parameters + Submit -->
+    <div class="xl:col-span-2 space-y-4 sm:space-y-5">
+
+      <!-- Generation Parameters -->
+      <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-6 space-y-5 sm:space-y-6">
+        <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest">// PARAMETERS</h2>
+
+        <!-- Steps -->
+        <div>
+          <div class="flex justify-between mb-2">
+            <label class="tag text-gray-400">INFERENCE STEPS</label>
+            <span id="steps-val" class="tag text-brand-400">40</span>
+          </div>
+          <input type="range" name="num_inference_steps" id="steps-range"
+                 min="10" max="60" value="40" step="1"
+                 class="w-full accent-brand-500"
+                 oninput="document.getElementById('steps-val').textContent=this.value" />
+          <div class="flex justify-between mt-1">
+            <span class="tag text-gray-600">10 (fast)</span>
+            <span class="tag text-gray-600">60 (quality)</span>
+          </div>
+        </div>
+
+        <!-- CFG Scale -->
+        <div>
+          <div class="flex justify-between mb-2">
+            <label class="tag text-gray-400">CFG SCALE</label>
+            <span id="cfg-val" class="tag text-brand-400">4.0</span>
+          </div>
+          <input type="range" name="true_cfg_scale" id="cfg-range"
+                 min="1.0" max="10.0" value="4.0" step="0.5"
+                 class="w-full accent-brand-500"
+                 oninput="document.getElementById('cfg-val').textContent=parseFloat(this.value).toFixed(1)" />
+          <div class="flex justify-between mt-1">
+            <span class="tag text-gray-600">1.0</span>
+            <span class="tag text-gray-600">10.0</span>
+          </div>
+        </div>
+
+        <input type="hidden" name="guidance_scale" value="1.0" />
+
+        <!-- Output Size -->
+        <div>
+          <label class="tag text-gray-400 block mb-3">OUTPUT SIZE</label>
+          <div class="grid grid-cols-2 gap-2 sm:gap-3">
+            <div>
+              <label class="tag text-gray-600 block mb-1.5">WIDTH</label>
+              <select name="output_width"
+                      class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+                <option value="512">512</option>
+                <option value="768">768</option>
+                <option value="1024" selected>1024</option>
+                <option value="1280">1280</option>
+                <option value="1536">1536</option>
+                <option value="2048">2048</option>
+              </select>
+            </div>
+            <div>
+              <label class="tag text-gray-600 block mb-1.5">HEIGHT</label>
+              <select name="output_height"
+                      class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+                <option value="512">512</option>
+                <option value="768">768</option>
+                <option value="1024" selected>1024</option>
+                <option value="1280">1280</option>
+                <option value="1536">1536</option>
+                <option value="2048">2048</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Seed -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="tag text-gray-400">SEED</label>
+            <button type="button" onclick="randomizeSeed()" class="tag text-brand-500 hover:text-brand-400">RANDOMIZE</button>
+          </div>
+          <input type="number" name="seed" id="seed-input" value="0" min="0" max="2147483647"
+                 class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 sm:px-4 py-2.5 text-sm text-gray-100 font-mono focus:outline-none focus:border-brand-500 transition-all" />
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <button type="submit" id="submit-btn"
+              class="w-full bg-brand-500 hover:bg-brand-400 text-black font-mono font-bold text-sm py-4 rounded-xl transition-all glow active:scale-[0.99] flex items-center justify-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        GENERATE IMAGE
+      </button>
+
+      <!-- Info box -->
+      <div class="bg-surface-700/50 border border-surface-600 rounded-xl p-4 space-y-2">
+        <div class="tag text-gray-500 mb-2">RUNTIME INFO</div>
+        <div class="flex justify-between text-xs">
+          <span class="text-gray-500">Model</span>
+          <span class="font-mono text-gray-400">Qwen-Edit-2511</span>
+        </div>
+        <div class="flex justify-between text-xs">
+          <span class="text-gray-500">Max images</span>
+          <span class="font-mono text-gray-400">3</span>
+        </div>
+        <div class="flex justify-between text-xs">
+          <span class="text-gray-500">Job runs async</span>
+          <span class="font-mono text-gray-400">✓ background</span>
+        </div>
+        <div class="flex justify-between text-xs">
+          <span class="text-gray-500">Est. time (40 steps)</span>
+          <span class="font-mono text-gray-400">~30–90s</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const promptEl = document.getElementById('prompt');
+  const countEl = document.getElementById('prompt-count');
+  promptEl.addEventListener('input', () => {
+    countEl.textContent = promptEl.value.length + ' chars';
+  });
+
+  function randomizeSeed() {
+    document.getElementById('seed-input').value = Math.floor(Math.random() * 2147483647);
+  }
+
+  const dropZone = document.getElementById('drop-zone');
+  const imageInput = document.getElementById('image-input');
+  const previewGrid = document.getElementById('preview-grid');
+  const placeholder = document.getElementById('drop-placeholder');
+  let selectedFiles = [];
+
+  function updatePreviews(files) {
+    selectedFiles = Array.from(files).slice(0, 3);
+    if (selectedFiles.length === 0) {
+      previewGrid.classList.add('hidden');
+      placeholder.classList.remove('hidden');
+      return;
+    }
+    placeholder.classList.add('hidden');
+    previewGrid.classList.remove('hidden');
+    previewGrid.innerHTML = '';
+
+    const dt = new DataTransfer();
+    selectedFiles.forEach((file, idx) => {
+      dt.items.add(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const div = document.createElement('div');
+        div.className = 'relative group rounded-lg overflow-hidden bg-surface-700 border border-surface-500';
+        div.innerHTML = `
+          <img src="${e.target.result}" class="preview-img w-full rounded-lg" />
+          <div class="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center">
+            <button type="button" onclick="removeFile(${idx})"
+                    class="opacity-0 group-hover:opacity-100 transition-all bg-red-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold">✕</button>
+          </div>
+          <div class="absolute bottom-1 left-1">
+            <span class="tag bg-black/60 text-gray-300 px-1.5 py-0.5 rounded">IMG ${idx + 1}</span>
+          </div>
+        `;
+        previewGrid.appendChild(div);
+      };
+      reader.readAsDataURL(file);
+    });
+    imageInput.files = dt.files;
+  }
+
+  function removeFile(idx) {
+    selectedFiles.splice(idx, 1);
+    const dt = new DataTransfer();
+    selectedFiles.forEach(f => dt.items.add(f));
+    imageInput.files = dt.files;
+    updatePreviews(selectedFiles);
+  }
+
+  imageInput.addEventListener('change', () => updatePreviews(imageInput.files));
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    updatePreviews(e.dataTransfer.files);
+  });
+
+  document.getElementById('generate-form').addEventListener('submit', () => {
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> SUBMITTING…`;
+    btn.classList.replace('bg-brand-500', 'bg-brand-700');
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,169 @@
+{% extends "image_gen/base.html" %}
+{% block title %}Dashboard — Qwen Studio{% endblock %}
+{% block page_title %}// DASHBOARD{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'generate' %}"
+   class="flex items-center gap-1.5 px-3 py-2 bg-brand-500 hover:bg-brand-400 text-black text-xs font-mono font-bold rounded-lg transition-all glow-sm">
+  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+  </svg>
+  <span class="hidden sm:inline">NEW JOB</span>
+  <span class="sm:hidden">NEW</span>
+</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- Stats row: 2 cols on mobile, 4 on lg -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+
+  <!-- Model status: full-width on mobile, normal on lg -->
+  <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-5 col-span-2 lg:col-span-1">
+    <div class="tag text-gray-500 mb-3">MODEL STATUS</div>
+    <div class="flex items-center gap-2">
+      <div class="w-2.5 h-2.5 rounded-full {% if model_loaded %}bg-brand-400 animate-pulse{% else %}bg-yellow-500{% endif %}"></div>
+      <span class="font-mono text-sm font-bold {% if model_loaded %}text-brand-400{% else %}text-yellow-400{% endif %}">
+        {% if model_loaded %}LOADED{% else %}NOT LOADED{% endif %}
+      </span>
+    </div>
+    <div class="mt-2 tag text-gray-600">QWEN-IMAGE-EDIT-2511</div>
+    {% if mock_mode %}
+    <div class="mt-2 tag text-brand-400 bg-brand-900/30 px-2 py-1 rounded inline-block">⚡ MOCK MODE</div>
+    {% endif %}
+  </div>
+
+  <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-5">
+    <div class="tag text-gray-500 mb-3">TOTAL JOBS</div>
+    <div class="font-mono text-2xl sm:text-3xl font-bold text-white">{{ total_jobs }}</div>
+  </div>
+
+  <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-5">
+    <div class="tag text-gray-500 mb-3">COMPLETED</div>
+    <div class="font-mono text-2xl sm:text-3xl font-bold text-brand-400">{{ done_jobs }}</div>
+  </div>
+
+  <div class="bg-surface-800 border border-surface-600 rounded-xl p-4 sm:p-5">
+    <div class="tag text-gray-500 mb-3">FAILED</div>
+    <div class="font-mono text-2xl sm:text-3xl font-bold {% if failed_jobs > 0 %}text-red-400{% else %}text-gray-600{% endif %}">{{ failed_jobs }}</div>
+  </div>
+</div>
+
+<!-- Two-column layout: stacked on mobile, side by side on lg -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
+
+  <!-- Recent Jobs -->
+  <div class="lg:col-span-2">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest">// RECENT JOBS</h2>
+      <a href="{% url 'jobs_list' %}" class="tag text-brand-500 hover:text-brand-400">VIEW ALL →</a>
+    </div>
+
+    <div class="space-y-2">
+      {% for job in jobs %}
+      <a href="{% url 'job_detail' job.id %}"
+         class="flex items-center gap-3 sm:gap-4 bg-surface-800 border border-surface-600 hover:border-brand-700 rounded-xl px-3 sm:px-4 py-3 sm:py-3.5 transition-all group">
+
+        <!-- Status dot -->
+        <div class="flex-shrink-0">
+          {% if job.status == 'done' %}
+            <div class="w-2 h-2 rounded-full bg-brand-400"></div>
+          {% elif job.status == 'processing' %}
+            <div class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></div>
+          {% elif job.status == 'pending' %}
+            <div class="w-2 h-2 rounded-full bg-gray-500"></div>
+          {% else %}
+            <div class="w-2 h-2 rounded-full bg-red-400"></div>
+          {% endif %}
+        </div>
+
+        <!-- Thumbnail -->
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-lg overflow-hidden bg-surface-600 flex-shrink-0">
+          {% if job.output_image %}
+            <img src="{{ job.output_image.url }}" class="w-full h-full object-cover" alt="">
+          {% elif job.input_images.first %}
+            <img src="{{ job.input_images.first.image.url }}" class="w-full h-full object-cover opacity-40" alt="">
+          {% else %}
+            <div class="w-full h-full flex items-center justify-center">
+              <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Info -->
+        <div class="flex-1 min-w-0">
+          <div class="text-xs sm:text-sm text-gray-200 truncate group-hover:text-white transition-colors">{{ job.prompt }}</div>
+          <div class="flex items-center gap-2 sm:gap-3 mt-1 flex-wrap">
+            <span class="tag text-gray-600">{{ job.created_at|date:"M d, H:i" }}</span>
+            {% if job.api_key_used %}
+              <span class="tag text-brand-600">API</span>
+            {% else %}
+              <span class="tag text-gray-700">UI</span>
+            {% endif %}
+            {% if job.duration_seconds %}
+              <span class="tag text-gray-600 hidden sm:inline">{{ job.duration_seconds|floatformat:1 }}s</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Status badge -->
+        <div class="flex-shrink-0">
+          <span class="tag px-1.5 sm:px-2 py-1 rounded
+            {% if job.status == 'done' %}bg-brand-700/30 text-brand-400
+            {% elif job.status == 'processing' %}bg-yellow-900/30 text-yellow-400
+            {% elif job.status == 'pending' %}bg-surface-600 text-gray-400
+            {% else %}bg-red-900/30 text-red-400{% endif %}">
+            {{ job.status|upper }}
+          </span>
+        </div>
+
+        <svg class="w-4 h-4 text-gray-600 group-hover:text-brand-500 transition-colors flex-shrink-0 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </a>
+      {% empty %}
+      <div class="text-center py-16 text-gray-600">
+        <svg class="w-12 h-12 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <p class="font-mono text-sm">No jobs yet. <a href="{% url 'generate' %}" class="text-brand-500 hover:underline">Generate one →</a></p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- API Keys -->
+  <div class="lg:col-span-1">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest">// API KEYS</h2>
+      <a href="{% url 'api_keys' %}" class="tag text-brand-500 hover:text-brand-400">MANAGE →</a>
+    </div>
+
+    <!-- On mobile: horizontal scroll row; on lg: stacked -->
+    <div class="flex gap-3 overflow-x-auto pb-2 lg:flex-col lg:overflow-x-visible lg:pb-0 lg:space-y-2">
+      {% for key in api_keys %}
+      <div class="bg-surface-800 border border-surface-600 rounded-xl px-4 py-3.5 flex-shrink-0 w-64 lg:w-auto">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-sm text-gray-200 font-medium truncate mr-2">{{ key.name }}</span>
+          <span class="w-2 h-2 rounded-full flex-shrink-0 {% if key.is_active %}bg-brand-400{% else %}bg-gray-600{% endif %}"></span>
+        </div>
+        <div class="font-mono text-xs text-gray-600">{{ key.key|slice:":16" }}…</div>
+        <div class="flex items-center gap-3 mt-2">
+          <span class="tag text-gray-600">{{ key.total_requests }} req</span>
+          {% if key.last_used_at %}
+            <span class="tag text-gray-600">{{ key.last_used_at|timesince }} ago</span>
+          {% endif %}
+        </div>
+      </div>
+      {% empty %}
+      <div class="bg-surface-800 border border-surface-600 rounded-xl px-4 py-8 text-center w-full">
+        <p class="text-xs text-gray-600 font-mono">No keys yet.</p>
+        <a href="{% url 'api_keys' %}" class="mt-2 inline-block text-xs text-brand-500 hover:underline font-mono">Create one →</a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

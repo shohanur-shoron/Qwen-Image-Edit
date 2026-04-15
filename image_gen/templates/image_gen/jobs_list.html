@@ -1,0 +1,537 @@
+{% extends "image_gen/base.html" %}
+{% block title %}All Jobs — Qwen Studio{% endblock %}
+{% block page_title %}// ALL JOBS{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* Collapsible filter panel */
+  #filter-panel { max-height: 0; overflow: hidden; transition: max-height 0.35s ease; }
+  #filter-panel.open { max-height: 1200px; }
+  /* Custom date inputs */
+  input[type="date"], input[type="number"] {
+    color-scheme: dark;
+  }
+  /* Tag color swatch */
+  .tag-swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- ── Top bar: search + actions ── -->
+  <div class="flex flex-col sm:flex-row gap-3 mb-4">
+    <!-- Main search -->
+    <form method="get" class="flex-1 flex gap-2">
+      <input type="text" name="q" value="{{ query }}"
+             placeholder="Search prompt or job ID…"
+             class="flex-1 bg-surface-800 border border-surface-600 rounded-lg px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-brand-500 font-mono min-w-0" />
+      <button type="submit"
+              class="px-4 py-2.5 bg-brand-500 hover:bg-brand-400 text-black text-xs font-mono font-bold rounded-lg transition-all glow-sm">
+        SEARCH
+      </button>
+    </form>
+
+    <!-- Sort -->
+    <select id="sort-select" onchange="applySort(this.value)"
+            class="bg-surface-800 border border-surface-600 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+      <option value="-created_at" {% if sort_by == '-created_at' or not sort_by %}selected{% endif %}>NEWEST FIRST</option>
+      <option value="created_at" {% if sort_by == 'created_at' %}selected{% endif %}>OLDEST FIRST</option>
+      <option value="-duration" {% if sort_by == '-duration' %}selected{% endif %}>LONGEST FIRST</option>
+      <option value="duration" {% if sort_by == 'duration' %}selected{% endif %}>FASTEST FIRST</option>
+      <option value="-steps" {% if sort_by == '-steps' %}selected{% endif %}>MOST STEPS</option>
+      <option value="steps" {% if sort_by == 'steps' %}selected{% endif %}>LEAST STEPS</option>
+      <option value="-cfg" {% if sort_by == '-cfg' %}selected{% endif %}>HIGHEST CFG</option>
+      <option value="cfg" {% if sort_by == 'cfg' %}selected{% endif %}>LOWEST CFG</option>
+      <option value="status" {% if sort_by == 'status' %}selected{% endif %}>BY STATUS</option>
+      <option value="prompt" {% if sort_by == 'prompt' %}selected{% endif %}>A→Z PROMPT</option>
+    </select>
+
+    <!-- Filters toggle -->
+    <button onclick="toggleFilters()" id="filter-toggle-btn"
+            class="px-4 py-2.5 bg-surface-800 hover:bg-surface-700 border border-surface-600 text-gray-300 hover:text-brand-400 text-xs font-mono rounded-lg transition-all flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+      </svg>
+      FILTERS
+      <span id="filter-badge" class="hidden bg-brand-500 text-black text-xs font-bold px-1.5 rounded-full">!</span>
+    </button>
+
+    <!-- Export -->
+    <div class="flex gap-2">
+      <a href="{% url 'export_jobs' %}?fmt=csv{% if query %}&q={{ query }}{% endif %}"
+         class="px-3 py-2.5 bg-surface-800 hover:bg-surface-700 border border-surface-600 text-gray-300 hover:text-brand-400 text-xs font-mono rounded-lg transition-all flex items-center gap-1.5">
+        ↓ CSV
+      </a>
+      <a href="{% url 'export_jobs' %}?fmt=json{% if query %}&q={{ query }}{% endif %}"
+         class="px-3 py-2.5 bg-surface-800 hover:bg-surface-700 border border-surface-600 text-gray-300 hover:text-brand-400 text-xs font-mono rounded-lg transition-all flex items-center gap-1.5">
+        ↓ JSON
+      </a>
+    </div>
+  </div>
+
+  <!-- ── Saved searches bar ── -->
+  {% if saved_searches %}
+  <div class="flex items-center gap-2 mb-4 flex-wrap">
+    <span class="tag text-gray-600">SAVED:</span>
+    {% for ss in saved_searches %}
+    <div class="flex items-center gap-1">
+      <a href="{% url 'jobs_list' %}?{% for k,v in ss.filters.items %}{{ k }}={{ v }}&{% endfor %}"
+         class="tag px-2 py-1 rounded bg-surface-700 border border-surface-500 text-brand-400 hover:border-brand-600 transition-all">
+        {{ ss.name }}
+      </a>
+      <form method="post" action="{% url 'delete_saved_search' ss.id %}" class="inline">
+        {% csrf_token %}
+        <button type="submit" class="text-gray-600 hover:text-red-400 text-xs" title="Delete">✕</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ── Advanced filter panel ── -->
+  <form method="get" id="filter-form">
+    <!-- Preserve current search query -->
+    {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+
+    <div id="filter-panel" class="bg-surface-800 border border-surface-600 rounded-xl mb-4">
+      <div class="p-4 sm:p-5 space-y-5">
+
+        <!-- Row 1: Status + Source + Output -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label class="tag text-gray-500 block mb-2">STATUS</label>
+            <select name="status"
+                    class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+              <option value="">ALL</option>
+              <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>PENDING</option>
+              <option value="processing" {% if status_filter == 'processing' %}selected{% endif %}>PROCESSING</option>
+              <option value="done" {% if status_filter == 'done' %}selected{% endif %}>DONE</option>
+              <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>FAILED</option>
+            </select>
+          </div>
+          <div>
+            <label class="tag text-gray-500 block mb-2">SOURCE</label>
+            <select name="source"
+                    class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+              <option value="">ALL</option>
+              <option value="ui" {% if source_filter == 'ui' %}selected{% endif %}>UI ONLY</option>
+              <option value="api" {% if source_filter == 'api' %}selected{% endif %}>API ONLY</option>
+            </select>
+          </div>
+          <div>
+            <label class="tag text-gray-500 block mb-2">HAS OUTPUT</label>
+            <select name="has_output"
+                    class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+              <option value="">ANY</option>
+              <option value="yes" {% if has_output_filter == 'yes' %}selected{% endif %}>YES</option>
+              <option value="no" {% if has_output_filter == 'no' %}selected{% endif %}>NO</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Row 2: Date range -->
+        <div>
+          <label class="tag text-gray-500 block mb-2">DATE RANGE</label>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="tag text-gray-600 block mb-1 text-xs">FROM</label>
+              <input type="date" name="date_from" value="{{ date_from }}"
+                     class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono" />
+            </div>
+            <div>
+              <label class="tag text-gray-600 block mb-1 text-xs">TO</label>
+              <input type="date" name="date_to" value="{{ date_to }}"
+                     class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 3: Steps + CFG -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="tag text-gray-500 block mb-2">INFERENCE STEPS</label>
+            <div class="flex gap-2">
+              <input type="number" name="steps_min" value="{{ steps_min }}" placeholder="Min"
+                     class="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono" />
+              <input type="number" name="steps_max" value="{{ steps_max }}" placeholder="Max"
+                     class="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono" />
+            </div>
+          </div>
+          <div>
+            <label class="tag text-gray-500 block mb-2">CFG SCALE</label>
+            <div class="flex gap-2">
+              <input type="number" name="cfg_min" value="{{ cfg_min }}" placeholder="Min" step="0.5"
+                     class="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono" />
+              <input type="number" name="cfg_max" value="{{ cfg_max }}" placeholder="Max" step="0.5"
+                     class="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 4: Resolution + Duration -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="tag text-gray-500 block mb-2">RESOLUTION</label>
+            <select name="resolution"
+                    class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+              <option value="">ANY</option>
+              {% for res in resolution_presets %}
+              <option value="{{ res }}" {% if resolution == res %}selected{% endif %}>{{ res }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="tag text-gray-500 block mb-2">DURATION (SECONDS)</label>
+            <div class="flex gap-2">
+              <input type="number" name="duration_min" value="{{ duration_min }}" placeholder="Min" step="0.1"
+                     class="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono" />
+              <input type="number" name="duration_max" value="{{ duration_max }}" placeholder="Max" step="0.1"
+                     class="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 5: API Key + Tags + Error search -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label class="tag text-gray-500 block mb-2">API KEY</label>
+            <select name="api_key"
+                    class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+              <option value="">ALL</option>
+              {% for key in all_api_keys %}
+              <option value="{{ key.id }}" {% if api_key_filter == key.id|stringformat:"s" %}selected{% endif %}>{{ key.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="tag text-gray-500 block mb-2">TAG</label>
+            <select name="tag"
+                    class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand-500 font-mono">
+              <option value="">ALL</option>
+              {% for tag in all_tags %}
+              <option value="{{ tag.id }}" {% if tag_filter == tag.id|stringformat:"s" %}selected{% endif %}>
+                {{ tag.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="tag text-gray-500 block mb-2">ERROR SEARCH</label>
+            <input type="text" name="error_q" value="{{ error_query }}" placeholder="Search error messages…"
+                   class="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-brand-500 font-mono" />
+          </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex items-center gap-3 pt-2 border-t border-surface-600">
+          <button type="submit"
+                  class="px-5 py-2.5 bg-brand-500 hover:bg-brand-400 text-black text-xs font-mono font-bold rounded-lg transition-all glow-sm">
+            APPLY FILTERS
+          </button>
+          <a href="{% url 'jobs_list' %}"
+             class="px-5 py-2.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-gray-400 hover:text-gray-200 text-xs font-mono rounded-lg transition-all">
+            CLEAR ALL
+          </a>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <!-- ── Saved search + Tag management (single row) ── -->
+  <div class="flex items-center gap-3 mb-4 flex-wrap">
+    <!-- Save search -->
+    <form method="post" action="{% url 'save_search' %}" class="flex gap-2 items-center">
+      {% csrf_token %}
+      <input type="text" name="name" placeholder="Save search…"
+             class="bg-surface-800 border border-surface-600 rounded-lg px-3 py-2 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-brand-500 font-mono w-36" />
+      <button type="submit"
+              class="px-3 py-2 bg-surface-800 hover:bg-surface-700 border border-surface-600 text-gray-400 hover:text-brand-400 text-xs font-mono rounded-lg transition-all">
+        SAVE
+      </button>
+    </form>
+
+    <!-- Separator -->
+    <div class="w-px h-6 bg-surface-600"></div>
+
+    <!-- Tag bar -->
+    {% if all_tags %}
+    <span class="tag text-gray-600">TAGS:</span>
+    {% for tag in all_tags %}
+    <div class="flex items-center gap-1">
+      <a href="?tag={{ tag.id }}"
+         class="flex items-center gap-1.5 tag px-2 py-1 rounded bg-surface-800 border transition-all hover:border-brand-600 {% if tag_filter == tag.id|stringformat:"s" %}border-brand-500 text-brand-400{% else %}border-surface-500 text-gray-400{% endif %}">
+        <span class="tag-swatch" style="background:{{ tag.color }}"></span>
+        {{ tag.name }}
+      </a>
+      <form method="post" action="{% url 'delete_tag' tag.id %}" class="inline">
+        {% csrf_token %}
+        <button type="submit" class="text-gray-600 hover:text-red-400 text-xs" title="Delete tag">✕</button>
+      </form>
+    </div>
+    {% endfor %}
+
+    <div class="w-px h-6 bg-surface-600"></div>
+    {% endif %}
+
+    <!-- Create new tag -->
+    <form method="post" action="{% url 'create_tag' %}" class="flex items-center gap-2">
+      {% csrf_token %}
+      <input type="text" name="name" placeholder="New tag…" required
+             class="bg-surface-800 border border-surface-600 rounded-lg px-3 py-1.5 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-brand-500 font-mono w-24" />
+      <input type="color" name="color" value="#10b981"
+             class="w-6 h-6 rounded cursor-pointer border-0 bg-transparent"
+             title="Tag color" />
+      <button type="submit"
+              class="px-2 py-1.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-gray-400 hover:text-brand-400 text-xs font-mono rounded-lg transition-all">
+        + TAG
+      </button>
+    </form>
+  </div>
+
+  <!-- ── Bulk action bar ── -->
+  <form method="post" action="{% url 'bulk_action' %}" id="bulk-form" class="mb-4">
+    {% csrf_token %}
+    <div id="bulk-actions-bar" class="hidden bg-surface-800 border border-brand-700 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+      <span class="tag text-brand-400"><span id="selected-count">0</span> SELECTED</span>
+      <button type="submit" name="action" value="delete" onclick="return confirm('Delete selected jobs?')"
+              class="px-3 py-1.5 text-xs font-mono text-red-400 hover:text-red-300 border border-red-900/50 hover:border-red-700 rounded-lg transition-all">
+        DELETE
+      </button>
+      <button type="submit" name="action" value="rerun"
+              class="px-3 py-1.5 text-xs font-mono text-yellow-400 hover:text-yellow-300 border border-yellow-800/50 hover:border-yellow-600 rounded-lg transition-all">
+        RE-RUN
+      </button>
+
+      <!-- Tag bulk action -->
+      <div class="flex items-center gap-2">
+        <select name="tag_ids" multiple
+                class="bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-xs text-gray-100 font-mono"
+                style="min-width:120px">
+          {% for tag in all_tags %}
+          <option value="{{ tag.id }}">{{ tag.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" name="action" value="tag"
+                class="px-3 py-1.5 text-xs font-mono text-brand-400 hover:text-brand-300 border border-brand-800/50 hover:border-brand-600 rounded-lg transition-all">
+          TAG SELECTED
+        </button>
+      </div>
+
+      <div class="flex-1"></div>
+      <button type="button" onclick="clearSelections()"
+              class="px-3 py-1.5 text-xs font-mono text-gray-500 hover:text-gray-300 rounded-lg transition-all">
+        CLEAR
+      </button>
+    </div>
+
+    <!-- ── Jobs list ── -->
+    <div class="bg-surface-800 border border-surface-600 rounded-xl overflow-hidden">
+      <div class="px-4 sm:px-6 py-4 border-b border-surface-600 flex items-center justify-between">
+        <h2 class="font-mono text-xs font-bold text-gray-400 tracking-widest">// SHOWING {{ page_obj.start_index }}–{{ page_obj.end_index }} OF {{ page_obj.paginator.count }}</h2>
+        <span class="tag text-gray-600">PAGE {{ page_obj.number }}/{{ page_obj.paginator.num_pages }}</span>
+      </div>
+
+      <div class="divide-y divide-surface-600">
+        {% for job in page_obj %}
+        <div class="flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3.5 sm:py-4 transition-all hover:bg-surface-700/50 group">
+          <!-- Checkbox -->
+          <input type="checkbox" name="job_ids" value="{{ job.id }}"
+                 class="bulk-check w-4 h-4 rounded border-surface-500 text-brand-500 focus:ring-brand-500 bg-surface-700 cursor-pointer flex-shrink-0"
+                 onchange="updateBulkBar()" />
+
+          <!-- Link wrapper -->
+          <a href="{% url 'job_detail' job.id %}" class="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+
+            <!-- Status dot -->
+            <div class="flex-shrink-0">
+              {% if job.status == 'done' %}
+                <div class="w-2.5 h-2.5 rounded-full bg-brand-400"></div>
+              {% elif job.status == 'processing' %}
+                <div class="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse"></div>
+              {% elif job.status == 'pending' %}
+                <div class="w-2.5 h-2.5 rounded-full bg-gray-500"></div>
+              {% else %}
+                <div class="w-2.5 h-2.5 rounded-full bg-red-400"></div>
+              {% endif %}
+            </div>
+
+            <!-- Thumbnail -->
+            <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-surface-600 flex-shrink-0">
+              {% if job.output_image %}
+                <img src="{{ job.output_image.url }}" class="w-full h-full object-cover" alt="">
+              {% elif job.input_images.first %}
+                <img src="{{ job.input_images.first.image.url }}" class="w-full h-full object-cover opacity-40" alt="">
+              {% else %}
+                <div class="w-full h-full flex items-center justify-center">
+                  <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                  </svg>
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- Info -->
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-gray-200 truncate group-hover:text-white transition-colors">{{ job.prompt }}</div>
+              <div class="flex items-center gap-2 sm:gap-3 mt-1 flex-wrap">
+                <span class="tag text-gray-600">{{ job.created_at|date:"M d, H:i" }}</span>
+                {% if job.api_key_used %}
+                  <span class="tag text-brand-600">API</span>
+                {% else %}
+                  <span class="tag text-gray-700">UI</span>
+                {% endif %}
+                {% if job.duration_seconds %}
+                  <span class="tag text-gray-600 hidden sm:inline">{{ job.duration_seconds|floatformat:1 }}s</span>
+                {% endif %}
+                <!-- Tags -->
+                {% for tag in job.tags.all %}
+                <span class="tag px-1.5 py-0.5 rounded flex items-center gap-1" style="background:{{ tag.color }}22; color:{{ tag.color }}; border:1px solid {{ tag.color }}44">
+                  <span class="tag-swatch" style="background:{{ tag.color }}"></span>
+                  {{ tag.name }}
+                </span>
+                {% endfor %}
+              </div>
+            </div>
+
+            <!-- Status badge -->
+            <div class="flex-shrink-0">
+              <span class="tag px-2 py-1 rounded
+                {% if job.status == 'done' %}bg-brand-700/30 text-brand-400
+                {% elif job.status == 'processing' %}bg-yellow-900/30 text-yellow-400
+                {% elif job.status == 'pending' %}bg-surface-600 text-gray-400
+                {% else %}bg-red-900/30 text-red-400{% endif %}">
+                {{ job.status|upper }}
+              </span>
+            </div>
+
+            <!-- Arrow -->
+            <svg class="w-4 h-4 text-gray-600 group-hover:text-brand-500 transition-colors flex-shrink-0 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </a>
+        </div>
+        {% empty %}
+        <div class="text-center py-16">
+          <svg class="w-12 h-12 mx-auto mb-3 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+          <p class="text-sm text-gray-600 font-mono">No jobs match your filters.</p>
+          <a href="{% url 'jobs_list' %}" class="mt-2 inline-block text-xs text-brand-500 hover:underline font-mono">Clear all filters →</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </form>
+
+  <!-- ── Pagination ── -->
+  {% if page_obj.has_other_pages %}
+  <div class="flex items-center justify-between mt-5 sm:mt-6">
+    <div class="flex items-center gap-2">
+      {% if page_obj.has_previous %}
+        <a href="#" data-page-link="1"
+           class="px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-xs font-mono text-gray-400 hover:text-brand-400 hover:border-brand-700 transition-all">
+          &laquo; FIRST
+        </a>
+        <a href="#" data-page-link="{{ page_obj.previous_page_number }}"
+           class="px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-xs font-mono text-gray-400 hover:text-brand-400 hover:border-brand-700 transition-all">
+          ‹ PREV
+        </a>
+      {% endif %}
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}
+          <span class="px-3 py-2 bg-brand-500 text-black text-xs font-mono font-bold rounded-lg">{{ num }}</span>
+        {% elif num > page_obj.number|add:'-4' and num < page_obj.number|add:'4' %}
+          <a href="#" data-page-link="{{ num }}"
+             class="px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-xs font-mono text-gray-400 hover:text-brand-400 hover:border-brand-700 transition-all">
+            {{ num }}
+          </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="flex items-center gap-2">
+      {% if page_obj.has_next %}
+        <a href="#" data-page-link="{{ page_obj.next_page_number }}"
+           class="px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-xs font-mono text-gray-400 hover:text-brand-400 hover:border-brand-700 transition-all">
+          NEXT ›
+        </a>
+        <a href="#" data-page-link="{{ page_obj.paginator.num_pages }}"
+           class="px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-xs font-mono text-gray-400 hover:text-brand-400 hover:border-brand-700 transition-all">
+          LAST &raquo;
+        </a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // ── Filter panel toggle ──
+  function toggleFilters() {
+    const panel = document.getElementById('filter-panel');
+    const btn = document.getElementById('filter-toggle-btn');
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) {
+      btn.classList.add('border-brand-600', 'text-brand-400');
+    } else {
+      btn.classList.remove('border-brand-600', 'text-brand-400');
+    }
+  }
+
+  // Show filter badge if any filters are active
+  {% if status_filter or source_filter or has_output_filter or date_from or date_to or steps_min or steps_max or cfg_min or cfg_max or resolution or duration_min or duration_max or api_key_filter or tag_filter or error_query %}
+  document.getElementById('filter-badge').classList.remove('hidden');
+  // Auto-open panel if filters are active
+  document.getElementById('filter-panel').classList.add('open');
+  {% endif %}
+
+  // ── Sort ──
+  function applySort(val) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('sort', val);
+    window.location.search = params.toString();
+  }
+
+  // ── Bulk selection ──
+  function updateBulkBar() {
+    const checks = document.querySelectorAll('.bulk-check:checked');
+    const bar = document.getElementById('bulk-actions-bar');
+    const count = document.getElementById('selected-count');
+    if (checks.length > 0) {
+      bar.classList.remove('hidden');
+      count.textContent = checks.length;
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  function clearSelections() {
+    document.querySelectorAll('.bulk-check').forEach(cb => cb.checked = false);
+    updateBulkBar();
+  }
+
+  // ── Pagination helper: preserve all current params ──
+  function buildPageUrl(pageNum) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('page', pageNum);
+    // Remove empty params
+    for (const [key, value] of params.entries()) {
+      if (value === '') params.delete(key);
+    }
+    return window.location.pathname + '?' + params.toString();
+  }
+
+  // Patch all pagination links
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-page-link]').forEach(el => {
+      el.href = buildPageUrl(el.dataset.pageLink);
+    });
+  });
+</script>
+{% endblock %}
